@@ -1,0 +1,7 @@
+/target
+
+# Deployment credentials: the plaintext never exists, only the ciphertext.
+.deploy.secrets
+.deploy.secrets.enc.tmp
+
+.DS_Store

@@ -1,0 +1,43 @@
+[Unit]
+Description=notify mail relay (feedback forms and Acta alerts)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=localhost/notify:__TAG__
+# Caddy runs natively on the host and proxies feedback.marending.dev here.
+# Host 3005 because 3000-3004 are taken by rest.quest, go, jour, mariotto and
+# marending.dev on eos.
+PublishPort=127.0.0.1:3005:8080
+
+# Acta is the only client that is not a browser: it POSTs /alert from inside its
+# own container, so notify has to be on the shared network and addressable by
+# name. The network unit belongs to the acta checkout; `mise run deploy` refuses
+# to continue without it.
+Network=acta-net.network
+NetworkAlias=notify
+
+# Stateless: the binary is the whole image. Run as the deploying user and as
+# nobody else, exactly like Acta and marending.
+User=1000:1000
+UserNS=keep-id:uid=1000,gid=1000
+NoNewPrivileges=true
+DropCapability=all
+__CONFIG__
+
+# Both credentials are podman secrets, installed by `mise run deploy:secrets`.
+# Without SMTP_PASSWORD the service starts in dry-run and only logs; without
+# ALERT_TOKEN `/alert` answers 503 and never falls back to "no token required".
+Secret=notify-smtp-password,type=env,target=SMTP_PASSWORD
+Secret=notify-alert-token,type=env,target=ALERT_TOKEN
+
+[Service]
+Restart=on-failure
+RestartSec=5
+# The service stops accepting requests, then drains its queue with a 20 s
+# budget; the last in-flight send gets a 10 s timeout on top of that.
+TimeoutStopSec=40
+MemoryMax=128M
+
+[Install]
+WantedBy=default.target

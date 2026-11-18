@@ -1,0 +1,16 @@
+# The build context needs Cargo.toml, Cargo.lock and src/ only; nothing below is
+# copied into the image. `.deploy.secrets*` is here because it is a credential:
+# it must never be part of a build context, whether or not the Containerfile
+# would copy it. (marending's ignore file has this gap.)
+.git
+.jj
+.DS_Store
+target/
+mise-tasks/
+design/
+*.md
+
+.env
+.deploy.env
+.deploy.secrets
+.deploy.secrets.enc

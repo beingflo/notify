@@ -1,0 +1,33 @@
+[package]
+name = "notify"
+version = "0.1.0"
+edition = "2024"
+description = "Feedback and alert mail relay for marending.dev, rest.quest and Acta"
+
+[dependencies]
+async-trait = "0.1"
+axum = "0.8.9"
+# `default-features = false` is load-bearing: lettre's defaults pull in
+# `native-tls` (OpenSSL) and `pool`. The rustls stack below resolves the crypto
+# provider to `ring`, which needs a C compiler at build time and nothing at all
+# at run time, so the runtime image stays a bare `debian:bookworm-slim`.
+# `tokio1-rustls-tls` is the webpki-roots variant: no system CA store either.
+lettre = { version = "0.11.24", default-features = false, features = [
+    "builder",
+    "hostname",
+    "smtp-transport",
+    "tokio1-rustls-tls",
+] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+subtle = "2.6"
+tokio = { version = "1.53.3", features = ["full"] }
+tower-http = { version = "0.7.1", features = ["cors"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+
+[profile.release]
+strip = "symbols"

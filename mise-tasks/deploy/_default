@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#MISE description="Build, ship and deploy notify (run deploy:secrets first)"
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$root"
+# shellcheck source=/dev/null
+source "$root/mise-tasks/lib/env.sh"
+
+host="${NOTIFY_HOST:-eos}"
+tag="$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+image="localhost/notify:${tag}"
+
+command -v podman >/dev/null || die "podman not found"
+command -v zstd >/dev/null || die "zstd not found"
+podman info >/dev/null 2>&1 || die "podman machine is not running"
+
+# `deploy` never holds a credential: it only checks that `deploy:secrets`
+# installed them. The values themselves live in podman.
+require_secret() {
+    ssh "$host" "podman secret exists $1" >/dev/null 2>&1 \
+        || die "podman secret $1 is missing; run: mise run deploy:secrets"
+}
+# Without the SMTP password the service comes up in dry-run and only logs
+# feedback: a silent outage, so it is not an acceptable deploy.
+require_secret notify-smtp-password
+# Without the token `/alert` answers 503 to everything, including Acta.
+require_secret notify-alert-token
+
+# The network is declared by the acta checkout, whose deploy installs the unit.
+# Check for that file instead of creating a second copy here.
+ssh "$host" 'test -f "$HOME/.config/containers/systemd/acta-net.network"' \
+    || die "acta-net.network is not installed; run 'mise run deploy' in the acta checkout first"
+
+note "building ${image}"
+podman build -t "$image" -t localhost/notify:current .
+
+note "shipping ${image} to ${host}"
+podman save "$image" | zstd -q -T0 | ssh "$host" 'zstd -q -d | podman load'
+ssh "$host" "podman tag ${image} localhost/notify:current"
+
+# Every non-secret setting the service understands, with the value this deploy
+# should use. Non-secret configuration is rendered straight into the quadlet, so
+# the unit is the single source of truth and there is no env file to keep in
+# sync. Credentials are podman secrets and never pass through this task.
+tunables=(
+    "TZ=UTC"
+    "RUST_LOG=info"
+    "SERVE_PORT=8080"
+)
+
+config=""
+for entry in "${tunables[@]}"; do
+    name="${entry%%=*}"
+    value="${!name-}"
+    [[ -n "$value" ]] || value="${entry#*=}"
+    config+="Environment=${name}=${value}"$'\n'
+done
+config="${config%$'\n'}"
+
+note "installing notify.container (${tag})"
+sed -e "s|__TAG__|${tag}|g" notify.container \
+    | CONFIG="$config" awk '{ if ($0 == "__CONFIG__") print ENVIRON["CONFIG"]; else print }' \
+    | ssh "$host" 'mkdir -p "$HOME/.config/containers/systemd" && cat > "$HOME/.config/containers/systemd/notify.container"'
+
+note "restarting"
+ssh "$host" 'systemctl --user daemon-reload && systemctl --user restart notify'
+
+# A container that dies while starting leaves the unit inactive after a clean
+# exit, so nothing fails loudly. Check before reporting success.
+if ! ssh "$host" 'podman ps --format "{{.Names}}" | grep -qx systemd-notify'; then
+    ssh "$host" 'systemctl --user status notify --no-pager -n 20; echo; podman logs --tail 40 systemd-notify 2>&1' >&2 || true
+    die "notify did not stay running after the restart"
+fi
+
+note "health check"
+if ssh "$host" 'curl -sf --max-time 15 http://127.0.0.1:3005/health'; then
+    echo
+else
+    echo "WARN: /health is not ok"
+    ssh "$host" 'journalctl --user -u notify -n 50 --no-pager' || true
+fi
+
+note "pruning old images (keeping 5)"
+ssh "$host" 'podman images --format "{{.Repository}}:{{.Tag}}" \
+    | grep -E "^localhost/notify:" | grep -v ":current$" | sort \
+    | head -n -5 | xargs -r podman rmi >/dev/null 2>&1 || true'
+
+note "deployed ${image}"

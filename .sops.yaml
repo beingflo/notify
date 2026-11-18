@@ -1,0 +1,19 @@
+# sops configuration for the deploy credentials.
+#
+# This repo has its own age key on purpose: it holds the alert token, which Acta
+# also knows, so it must not share a key with acta or marending. The private
+# half lives in the 1Password item "SOPS age key - mail" and is only ever read
+# into a variable by `mise run deploy:secrets`.
+#
+# Replace the placeholder below with that key's public half (age1...):
+#   op item get "SOPS age key - mail" --fields "public key"
+#
+# Edit the committed ciphertext in place (no plaintext copy is left behind) with:
+#   mise run deploy:edit-secrets
+# followed by `mise run deploy:secrets` to install the values as podman secrets.
+#
+# sops resolves creation rules from the *input* path, so the rule matches the
+# gitignored plaintext `.deploy.secrets` and its encrypted counterpart.
+creation_rules:
+  - path_regex: \.deploy\.secrets(\.enc)?$
+    age: "REPLACE_WITH_AGE_PUBLIC_KEY"
