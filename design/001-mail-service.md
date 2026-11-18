@@ -172,5 +172,13 @@ Recorded here because they are departures from, or silences in, the brief above.
 12. **No plaintext secrets file ever exists.** `deploy:edit-secrets` writes a template on first use and
     encrypts it immediately; afterwards it sops-edits the ciphertext in place.
 13. **Drain**: 20 s queue deadline, `TimeoutStopSec=40` (drain plus one in-flight 10 s send).
-14. **The Acta sender is a follow-up.** This repo documents the `POST /alert` contract and a `curl`
+14. **`SMTP_USER` is a secret, not a constant.** The brief has every non-`SERVE_PORT`
+    setting as a constant in the source, but the Fastmail *login* address is a personal
+    address and this repository is public. It arrives as the `notify-smtp-user` podman
+    secret, with the app password as `notify-smtp-password`; the pair is required for
+    sending, and either half missing means dry run. Fastmail also refuses to authenticate
+    an alias, and `feedback@marending.dev` — the only address that could stay in the
+    source, since it is already on the site — is an alias by design, so this was going
+    to be a second value from the start.
+15. **The Acta sender is a follow-up.** This repo documents the `POST /alert` contract and a `curl`
     example; nothing in `../acta` was touched.

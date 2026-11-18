@@ -21,7 +21,7 @@
 die() { echo "error: $*" >&2; exit 1; }
 note() { echo "==> $*"; }
 
-age_item="SOPS age key - mail"
+age_item="SOPS age key - notify"
 
 # The private half lives in 1Password and is only ever read into a variable:
 # never written to disk and never exported. `deploy:secrets` uses it to decrypt,

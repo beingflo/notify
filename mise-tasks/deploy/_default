@@ -21,8 +21,9 @@ require_secret() {
     ssh "$host" "podman secret exists $1" >/dev/null 2>&1 \
         || die "podman secret $1 is missing; run: mise run deploy:secrets"
 }
-# Without the SMTP password the service comes up in dry-run and only logs
-# feedback: a silent outage, so it is not an acceptable deploy.
+# Without the SMTP pair the service comes up in dry-run and only logs feedback:
+# a silent outage, so it is not an acceptable deploy.
+require_secret notify-smtp-user
 require_secret notify-smtp-password
 # Without the token `/alert` answers 503 to everything, including Acta.
 require_secret notify-alert-token

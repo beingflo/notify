@@ -16,10 +16,12 @@ const DEFAULT_SERVE_PORT: u16 = 8080;
 // Port 465 is implicit TLS, which is what `AsyncSmtpTransport::relay` builds.
 pub const SMTP_HOST: &str = "smtp.fastmail.com";
 pub const SMTP_PORT: u16 = 465;
-/// Fastmail wants the full address as the SMTP user, not the local part.
-pub const SMTP_USER: &str = "feedback@marending.dev";
 /// Both ends of the envelope are the same address: `feedback@` is an alias into
 /// the `info@` inbox, so no second mailbox and no extra DNS are involved.
+///
+/// The SMTP *login* address is not here: it is a personal address, this repo is
+/// public, and it is a credential like the app password. It arrives as the
+/// `SMTP_USER` podman secret.
 pub const MAIL_FROM: &str = "feedback@marending.dev";
 pub const MAIL_TO: &str = "feedback@marending.dev";
 
@@ -81,7 +83,10 @@ pub const CORS_ORIGINS: [&str; 5] = [
 
 pub struct Settings {
     pub serve_port: u16,
-    /// Absent: no SMTP, so the payload is logged instead of sent (dry run).
+    /// The Fastmail login address. Absent (or without a password): no SMTP, so
+    /// the payload is logged instead of sent (dry run).
+    pub smtp_user: Option<String>,
+    /// Absent (or without a user): same as above.
     pub smtp_password: Option<String>,
     /// Absent: `/alert` answers 503. Fail closed — a missing secret must never
     /// mean "no token required".
@@ -99,14 +104,96 @@ impl Settings {
 
         // An empty secret is a secret that was not set: treat it as absent
         // rather than as an empty password.
-        Ok(Self {
+        //
+        // The app password is trimmed because a pasted trailing space or a
+        // stray newline produces the same `535` as a wrong password and is
+        // invisible in the logs. The alert token is not: it is compared
+        // byte-for-byte with what Acta was given, so it is taken as-is.
+        let mut settings = Self {
             serve_port,
+            smtp_user: non_empty(env::var("SMTP_USER")),
             smtp_password: non_empty(env::var("SMTP_PASSWORD")),
             alert_token: non_empty(env::var("ALERT_TOKEN")),
-        })
+        };
+
+        // Trimming is for the SMTP pair only: a pasted trailing space or a stray
+        // newline produces the same `535` as a wrong password and is invisible
+        // in the logs. The alert token is compared byte-for-byte with what Acta
+        // was given, so it is taken exactly as it arrives.
+        settings.smtp_user = settings.smtp_user.map(|user| user.trim().to_string());
+        settings.smtp_password = settings
+            .smtp_password
+            .map(|password| password.trim().to_string());
+
+        Ok(settings)
+    }
+
+    /// The credentials the transport needs, or `None` when this instance cannot
+    /// send mail and should dry-run instead. Half a pair is not enough: with a
+    /// password but no login address Fastmail would answer 535 to every mail.
+    pub fn smtp_credentials(&self) -> Option<(&str, &str)> {
+        match (self.smtp_user.as_deref(), self.smtp_password.as_deref()) {
+            (Some(user), Some(password)) => Some((user, password)),
+            _ => None,
+        }
+    }
+
+    /// What to say in the dry-run banner, so the log names the missing half
+    /// rather than leaving someone to guess.
+    pub fn why_dry_run(&self) -> &'static str {
+        match (self.smtp_user.is_some(), self.smtp_password.is_some()) {
+            (false, false) => "SMTP_USER and SMTP_PASSWORD are both unset",
+            (false, true) => "SMTP_PASSWORD is set but SMTP_USER is not: set the login address",
+            (true, false) => "SMTP_USER is set but SMTP_PASSWORD is not",
+            (true, true) => "both are set; this is a bug",
+        }
     }
 }
 
 fn non_empty(value: Result<String, env::VarError>) -> Option<String> {
     value.ok().filter(|v| !v.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(user: Option<&str>, password: Option<&str>) -> Settings {
+        Settings {
+            serve_port: 8080,
+            smtp_user: user.map(str::to_string),
+            smtp_password: password.map(str::to_string),
+            alert_token: None,
+        }
+    }
+
+    #[test]
+    fn credentials_need_both_halves() {
+        assert_eq!(
+            settings(Some("me@example.com"), Some("pw")).smtp_credentials(),
+            Some(("me@example.com", "pw"))
+        );
+        assert!(
+            settings(Some("me@example.com"), None)
+                .smtp_credentials()
+                .is_none()
+        );
+        assert!(settings(None, Some("pw")).smtp_credentials().is_none());
+        assert!(settings(None, None).smtp_credentials().is_none());
+    }
+
+    #[test]
+    fn the_banner_names_the_missing_half() {
+        assert!(settings(None, None).why_dry_run().contains("both unset"));
+        assert!(
+            settings(None, Some("pw"))
+                .why_dry_run()
+                .contains("SMTP_USER is not")
+        );
+        assert!(
+            settings(Some("me@example.com"), None)
+                .why_dry_run()
+                .contains("SMTP_PASSWORD is not")
+        );
+    }
 }

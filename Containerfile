@@ -3,12 +3,16 @@ FROM rust:bookworm AS builder
 WORKDIR /usr/src/notify
 
 COPY Cargo.toml Cargo.lock ./
-# Prime the dependency cache with a throwaway binary, so changing our own source
+# Prime the dependency layer with a throwaway binary, so changing our own source
 # recompiles only our own crate.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/src/notify/target \
-    mkdir -p src && echo 'fn main() {}' > src/main.rs \
+#
+# No `--mount=type=cache` anywhere: the crate registry and `target/` live in this
+# layer instead, which the next RUN inherits, and podman reuses the layer itself
+# while Cargo.toml and Cargo.lock are unchanged. The cache-mount version of this
+# build failed once with a truncated crate unpack (`tower-http` without its
+# `src/cors/` directory) and cargo does not verify those directories, so the
+# layer cache is both faster here and the one that cannot go quietly wrong.
+RUN mkdir -p src && echo 'fn main() {}' > src/main.rs \
     && cargo build --release \
     && rm -rf src
 
@@ -17,10 +21,7 @@ COPY src ./src
 # the context's mtimes, which are older than the fingerprints the priming build
 # recorded, so cargo would consider the package fresh and leave /tmp/notify as
 # the throwaway binary. The size check fails the build loudly if it happens.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/src/notify/target \
-    find src -exec touch {} + \
+RUN find src -exec touch {} + \
     && cargo build --release \
     && cp target/release/notify /tmp/notify \
     && test "$(stat -c %s /tmp/notify)" -gt 200000

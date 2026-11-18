@@ -30,15 +30,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let settings = Settings::from_env().map_err(std::io::Error::other)?;
 
-    let dry_run = settings.smtp_password.is_none();
-    let mailer: Arc<dyn Mailer> = match &settings.smtp_password {
-        Some(password) => Arc::new(Smtp::new(password).map_err(std::io::Error::other)?),
+    let dry_run = settings.smtp_credentials().is_none();
+    let mailer: Arc<dyn Mailer> = match settings.smtp_credentials() {
+        Some((user, password)) => {
+            Arc::new(Smtp::new(user, password).map_err(std::io::Error::other)?)
+        }
         None => Arc::new(LogOnly),
     };
 
     if dry_run {
         tracing::warn!("==========================================================");
-        tracing::warn!("SMTP_PASSWORD is not set: DRY RUN, no mail will be sent");
+        tracing::warn!("DRY RUN, no mail will be sent: {}", settings.why_dry_run());
         tracing::warn!("payloads are logged in full instead of being delivered");
         tracing::warn!("==========================================================");
     }

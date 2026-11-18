@@ -143,13 +143,13 @@ pub struct Smtp {
 }
 
 impl Smtp {
-    pub fn new(password: &str) -> Result<Self, String> {
+    /// `user` is the Fastmail account's *login* address, not the alias in
+    /// `MAIL_FROM`: aliases receive and can send as themselves, but a 535 comes
+    /// back if you try to authenticate as one.
+    pub fn new(user: &str, password: &str) -> Result<Self, String> {
         let transport = AsyncSmtpTransport::<Tokio1Executor>::relay(config::SMTP_HOST)
             .map_err(|error| format!("smtp: {error}"))?
-            .credentials(Credentials::new(
-                config::SMTP_USER.to_string(),
-                password.to_string(),
-            ))
+            .credentials(Credentials::new(user.to_string(), password.to_string()))
             .port(config::SMTP_PORT)
             // No `pool` feature: one connection per send, by construction.
             .build();
@@ -168,7 +168,24 @@ impl Mailer for Smtp {
             // `is_permanent` is true for a 5xx reply and for the client-side
             // errors that cannot succeed on a retry. Everything else — connect,
             // IO, timeout, 4xx — is transient.
-            Err(error) if error.is_permanent() => Err(Failure::Permanent(describe(&error))),
+            Err(error) if error.is_permanent() => {
+                let mut why = describe(&error);
+                // 535 is the one permanent error whose cause is a constant in
+                // this file rather than anything about the message: Fastmail
+                // authenticates the account's login address, and aliases such as
+                // this service's own feedback@ address are only sending
+                // identities. Without this hint the log reads like a wrong
+                // password.
+                if error.status().is_some_and(is_auth_failure) {
+                    why.push_str(
+                        " (535 is an authentication failure: SMTP_USER must be the Fastmail \
+                         account's login address, not an alias; the password must be an app \
+                         password with SMTP scope and no surrounding whitespace). Both arrive \
+                         as podman secrets: notify-smtp-user and notify-smtp-password",
+                    );
+                }
+                Err(Failure::Permanent(why))
+            }
             Err(error) => Err(Failure::Transient(describe(&error))),
         }
     }
@@ -199,6 +216,12 @@ fn describe(error: &SmtpError) -> String {
         Some(code) => format!("smtp {code}: {error}"),
         None => error.to_string(),
     }
+}
+
+/// `Code` exposes its three digits as fields but has no numeric accessor, and
+/// its `Display` is exactly the three digits: `535` is authentication failed.
+fn is_auth_failure(code: lettre::transport::smtp::response::Code) -> bool {
+    code.to_string() == "535"
 }
 
 /// Stand-in used when `SMTP_PASSWORD` is absent: nothing is sent, and the
@@ -256,6 +279,23 @@ mod tests {
             rendered.contains("To: feedback@marending.dev"),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn only_535_counts_as_an_authentication_failure() {
+        use lettre::transport::smtp::response::{Category, Code, Detail, Severity};
+
+        assert!(is_auth_failure(Code::new(
+            Severity::PermanentNegativeCompletion,
+            Category::Unspecified3,
+            Detail::Five,
+        )));
+        // 550 is a permanent failure too, but not an authentication one.
+        assert!(!is_auth_failure(Code::new(
+            Severity::PermanentNegativeCompletion,
+            Category::MailSystem,
+            Detail::Zero,
+        )));
     }
 
     #[test]

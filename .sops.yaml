@@ -16,4 +16,4 @@
 # gitignored plaintext `.deploy.secrets` and its encrypted counterpart.
 creation_rules:
   - path_regex: \.deploy\.secrets(\.enc)?$
-    age: "REPLACE_WITH_AGE_PUBLIC_KEY"
+    age: age1q6pg7ly5zz9zmha34hmg783utdusklawrxz9r4nekkpl0rpmnfssdlx9m7

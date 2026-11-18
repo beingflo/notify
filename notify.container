@@ -25,9 +25,12 @@ NoNewPrivileges=true
 DropCapability=all
 __CONFIG__
 
-# Both credentials are podman secrets, installed by `mise run deploy:secrets`.
-# Without SMTP_PASSWORD the service starts in dry-run and only logs; without
+# Every credential is a podman secret, installed by `mise run deploy:secrets`.
+# The Fastmail login address is one of them: this repo is public and the address
+# is personal, so it is not a constant in the source like the `From:` alias is.
+# Without the SMTP pair the service starts in dry-run and only logs; without
 # ALERT_TOKEN `/alert` answers 503 and never falls back to "no token required".
+Secret=notify-smtp-user,type=env,target=SMTP_USER
 Secret=notify-smtp-password,type=env,target=SMTP_PASSWORD
 Secret=notify-alert-token,type=env,target=ALERT_TOKEN
 
