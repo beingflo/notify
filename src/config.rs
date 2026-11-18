@@ -16,14 +16,23 @@ const DEFAULT_SERVE_PORT: u16 = 8080;
 // Port 465 is implicit TLS, which is what `AsyncSmtpTransport::relay` builds.
 pub const SMTP_HOST: &str = "smtp.fastmail.com";
 pub const SMTP_PORT: u16 = 465;
-/// Both ends of the envelope are the same address: `feedback@` is an alias into
-/// the `info@` inbox, so no second mailbox and no extra DNS are involved.
+/// Feedback, both ends of the envelope the same address: `feedback@` is an alias
+/// into the `info@` inbox, so no second mailbox and no extra DNS are involved.
 ///
 /// The SMTP *login* address is not here: it is a personal address, this repo is
 /// public, and it is a credential like the app password. It arrives as the
 /// `SMTP_USER` podman secret.
-pub const MAIL_FROM: &str = "feedback@marending.dev";
-pub const MAIL_TO: &str = "feedback@marending.dev";
+pub const FEEDBACK_FROM: &str = "feedback@marending.dev";
+pub const FEEDBACK_TO: &str = "feedback@marending.dev";
+
+/// Alerts keep their own sender, so a mail client can sort them by `From` alone,
+/// without reading a subject prefix or a header. `alerts@` is a sending identity
+/// on the same Fastmail account — the *login* address is still what
+/// authenticates, so this needs no second credential, but the alias must exist on
+/// the account or Fastmail refuses to send as it. The envelope goes to the same
+/// inbox as feedback: it is the reading that differs, not where it lands.
+pub const ALERT_FROM: &str = "alerts@marending.dev";
+pub const ALERT_TO: &str = "feedback@marending.dev";
 
 /// A single send, wall clock. lettre has a connect timeout but no overall
 /// deadline, and the sender is one serial task: one stalled send would block

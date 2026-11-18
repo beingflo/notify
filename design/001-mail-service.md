@@ -46,6 +46,11 @@ secret on both sides. The token does **not** unlock `/feedback` — one token, o
 No rate limit on this route: instead a storm guard that only *logs loudly* above ~10 requests/minute,
 because a flood here means a bug in our own client and dropping those mails is the wrong answer.
 
+Both carry their own sender: feedback from `feedback@marending.dev`, alerts from
+`alerts@marending.dev`, so a client can sort on `From` instead of a subject prefix.
+Both are sending identities on the one Fastmail account — one credential, one
+inbox — and the envelope recipient stays `feedback@` for both.
+
 Validation for both: cap all strings, reject CR/LF, never interpolate unvalidated input into a header.
 
 ## Transport (settled)

@@ -44,6 +44,22 @@ impl Mail {
         }
     }
 
+    /// Who the mail is from and who receives it. Alerts carry their own sender so
+    /// they can be sorted on `From` alone, without parsing the subject.
+    pub fn from(&self) -> &'static str {
+        match self {
+            Mail::Feedback { .. } => config::FEEDBACK_FROM,
+            Mail::Alert { .. } => config::ALERT_FROM,
+        }
+    }
+
+    pub fn to(&self) -> &'static str {
+        match self {
+            Mail::Feedback { .. } => config::FEEDBACK_TO,
+            Mail::Alert { .. } => config::ALERT_TO,
+        }
+    }
+
     /// Only feedback carries an author, and only when the address parses.
     /// Reply-To has no deliverability impact: SPF, DKIM and DMARC all key off
     /// `From`, which is always ours.
@@ -144,7 +160,7 @@ pub struct Smtp {
 
 impl Smtp {
     /// `user` is the Fastmail account's *login* address, not the alias in
-    /// `MAIL_FROM`: aliases receive and can send as themselves, but a 535 comes
+    /// the sender constant: aliases receive and can send as themselves, but a 535 comes
     /// back if you try to authenticate as one.
     pub fn new(user: &str, password: &str) -> Result<Self, String> {
         let transport = AsyncSmtpTransport::<Tokio1Executor>::relay(config::SMTP_HOST)
@@ -192,12 +208,14 @@ impl Mailer for Smtp {
 }
 
 fn build(mail: &Mail) -> Result<Message, lettre::error::Error> {
-    let from: Address = config::MAIL_FROM
+    let from: Address = mail
+        .from()
         .parse()
-        .expect("MAIL_FROM is a constant and must parse");
-    let to: Address = config::MAIL_TO
+        .expect("the envelope constants must parse");
+    let to: Address = mail
+        .to()
         .parse()
-        .expect("MAIL_TO is a constant and must parse");
+        .expect("the envelope constants must parse");
 
     let mut builder = Message::builder()
         .from(Mailbox::new(None, from))
@@ -277,6 +295,35 @@ mod tests {
         );
         assert!(
             rendered.contains("To: feedback@marending.dev"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn an_alert_is_from_the_alerts_alias_and_feedback_is_not() {
+        let alert = Mail::Alert {
+            source: "acta-eos".to_string(),
+            severity: "warn".to_string(),
+            title: "eos board temperature above 35 °C".to_string(),
+            body: "42 °C".to_string(),
+        };
+        let rendered = build(&alert).unwrap().formatted();
+        let rendered = String::from_utf8_lossy(&rendered);
+        // The alias, so a mail client can sort alerts on `From` alone; the
+        // envelope address is unchanged from feedback's.
+        assert!(rendered.contains("From: alerts@marending.dev"), "{rendered}");
+        assert!(
+            rendered.contains("To: feedback@marending.dev"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("Subject: Alert (warn):"), "{rendered}");
+        // No author on an alert, so no Reply-To to answer.
+        assert!(!rendered.contains("Reply-To:"), "{rendered}");
+
+        let rendered = build(&feedback(None, None)).unwrap().formatted();
+        let rendered = String::from_utf8_lossy(&rendered);
+        assert!(
+            rendered.contains("From: feedback@marending.dev"),
             "{rendered}"
         );
     }

@@ -14,7 +14,7 @@ submission.
 ## Configuration
 
 - `SERVE_PORT` — default `8080`.
-- `SMTP_USER` — the Fastmail account's *login* address: the row marked
+- `SMTP_USER` — the Fastmail account's _login_ address: the row marked
   "Username" in Settings → My email addresses. `feedback@marending.dev` is an
   alias, and aliases can send as themselves but cannot authenticate (`535`).
 - `SMTP_PASSWORD` — app password for that account, SMTP scope.
